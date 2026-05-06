@@ -47,22 +47,22 @@ Documentation for the LXD · Gitea · Gitea Runner · OpenBao · MinIO · MicroK
 
 ---
 
-## Architecture Diagrams
+## For LXD - Gitea - Gittea runner - OpenBao - Minio - VM deployment and Ansible
 
-### LXD · Gitea · OpenBao · MinIO — Infrastructure and GHA Workflow
+### Architecture Overview - (Infrastrucutre - GHA workflow - Secrets workflow)
 
 ```
                 ┌─────────────────────────────────────────────┐
                 │           Gitea (gitea.local)               │  (Org level secrets for OpenBao)
                 │   local-workflows-ansible-roles-modules     │
                 └─────────────────────┬───────────────────────┘
-                                      │ Gitea Actions triggers
-                                      ▼                                                     ┌───────────────┐
-                        ┌─────────────────────────┐                                         │    OpenBao    │
-                        │     Gitea Act Runner    │  (Docker-based, inside LXD VM) ─────────│   (secrets)   │
-                        └─────┬─────────┬─────────┘                                         │ For LXD/Minio │
-                              │         │                                                   └───────────────┘
-                              │ calls   │ calls
+                                      │ Gitea Actions triggers                                              
+                                      ▼                                                     ┌───────────────┐ 
+                        ┌─────────────────────────┐                                         │    OpenBao    │ 
+                        │     Gitea Act Runner    │  (Docker-based, inside LXD VM) ─────────│   (secrets)   │ 
+                        └─────┬─────────┬─────────┘                                         │ For LXD /Minio│ 
+                              │         │                                                   └───────────────┘  
+                              │ calls   │ calls                                                   
                               ▼         ▼
           ┌──────────────────────────────────────────────────────────┐
           │                  Shared Gitea Repos (Infra org)          │
@@ -80,24 +80,29 @@ Documentation for the LXD · Gitea · Gitea Runner · OpenBao · MinIO · MicroK
               │    backend s3   │           │  (Ubuntu 24.04) │
               │    (TF state)   │           │  ansible user   │
               └─────────────────┘           └─────────────────┘
-                      │
+                      │                    
                       │ Creates VM
-                      │
-              ┌─────────────────┐
-              │   LXD / KVM     │
-              │  (localhost:    │
-              │    8443)        │
-              └─────────────────┘
+                      │ 
+              ┌─────────────────┐ 
+              │   LXD / KVM     │ 
+              │  (localhost:    │ 
+              │    8443)        │ 
+              └─────────────────┘  
 ```
 
-### MicroK8s · Go · OpenBao — Go App Internal Secrets Workflow
+---
+
+## For Microk8s - Go - Gitea - Gitea runner - GHA - OpenBao
+
+### Architecture - (Infrastrucutre - Go app internal workflow - Go app internal Secrets workflow)
 
 ```
                               ┌────────────────────┐
                               │     index.html     │
                               └────────────────────┘
                                       │   ▲
-                                      ▼   │
+                                      │   │  
+                                      ▼   │ 
                               ┌────────────────────┐
                               │      Browser       │
                               └─────────┬──────────┘
@@ -114,7 +119,7 @@ Documentation for the LXD · Gitea · Gitea Runner · OpenBao · MinIO · MicroK
                                         │
                                         ▼
                               ┌────────────────────┐
-                              │   Pod (MicroK8s)   │  (OpenBao secrets injected)
+                              │   Pod (MicroK8s)   │  (OpenBao secrets for OpenBao)
                               └─────────┬──────────┘
                                         │
                   ┌─────────────────────┴─────────────────────┐
@@ -124,6 +129,16 @@ Documentation for the LXD · Gitea · Gitea Runner · OpenBao · MinIO · MicroK
       │ Fetch TLS cert/key           │         │ Query LXD API                │
       │ from OpenBao (AppRole)       │         │ (LXD Server)                 │
       └──────────────────────────────┘         └──────────────────────────────┘
+
+```
+
+---
+
+### Architecture - (Infrastrucutre - GHA workflow - Secrets workflow)
+
+```
+Add here
+
 ```
 
 ---
