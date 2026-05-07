@@ -114,7 +114,7 @@ Documentation for the LXD · Gitea · Gitea Runner · OpenBao · MinIO · MicroK
                                         │
                                         ▼
                               ┌────────────────────┐
-                              │      Service       │
+                              │      Service       │  ---- Go app gets internal secreat from openbao for lxd
                               └─────────┬──────────┘
                                         │
                                         ▼
@@ -137,12 +137,102 @@ Documentation for the LXD · Gitea · Gitea Runner · OpenBao · MinIO · MicroK
 ### Architecture - (Infrastrucutre - GHA workflow - Secrets workflow)
 
 ```
-Add here
+          ┌──────────────────────────────────────────────────┐
+          │              Gitea Org Secrets                   │
+          │  ├── VAULT_ADDR                                  │
+          │  ├── VAULT_ROLE_ID      → same for ALL workflows │
+          │  └── VAULT_SECRET_ID                             │
+          └──────────────────────────┬───────────────────────┘
+                                    │
+                                    ▼
+          ┌──────────────────────────────────────────────────┐
+          │                   OpenBao                        │  -----------------  Get .kube/config info from openbau
+          │               AppRole login                      │
+          └──────────────────────────┬───────────────────────┘
+                                    │
+                                    ▼
+          ┌──────────────────────────────────────────────────┐
+          │         homelab/data/microk8s                    │
+          │              kubeconfig                          │
+          │   (server: https://10.0.0.162:16443)             │
+          └──────────────────────────┬───────────────────────┘
+                                    │
+                                    ▼
+          ┌──────────────────────────────────────────────────┐
+          │           GHA Runner (LXD VM)                    │
+          │                                                  │
+          └──────────┬───────────────┬───────────────┬───────┘
+                    │               │               │
+                    ▼               ▼               ▼
+              ┌────────────┐  ┌────────────┐  ┌────────────┐
+              │helm deploy │  │helm deploy │  │helm deploy │
+              │   dev      │  │  staging   │  │   live     │
+              └────────────┘  └────────────┘  └────────────┘
 
+          PR Pipeline:   build-pr → deploy-dev-pr → deploy-staging-pr
+          Push Pipeline: build    → deploy-live
 ```
 
 ---
 
+## GHA workflow openboa secrets
+
+```
+          Gitea Org Secrets
+          ├── VAULT_ADDR
+          ├── VAULT_ROLE_ID        → same for ALL workflows
+          └── VAULT_SECRET_ID      → same for ALL workflows
+                  │
+                  ▼
+                OpenBao
+                (AppRole login)
+                  │
+                  ├── homelab/data/lxd        → LXD TLS cert/key    → go app talks to LXD
+                  ├── homelab/data/minio      → MinIO creds          → Terraform state backend
+                  ├── homelab/data/ansible    → Ansible secrets      → Ansible playbooks
+                  └── homelab/data/microk8s   → kubeconfig          → helm deploy to MicroK8s
+
+```
+---
+
+## Openboa - microk8s - Go app secrets
+
+```
+          Running Pod (request time)
+          ──────────────────────────
+          K8s Secret (openbao-creds)         ← created manually via kubectl
+          ├── VAULT_ADDR                         in each namespace (dev/staging/live)
+          ├── VAULT_ROLE_ID
+          └── VAULT_SECRET_ID
+                  │
+                  │  injected via envFrom in deployment.yaml
+                  │
+                  ▼
+                Go App (main.go)
+                getSecrets() function
+                  │
+                  │  AppRole login on every HTTP request
+                  ▼
+                OpenBao
+                  │
+                  └── homelab/data/lxd
+                            │
+                            ├── client_cert    → LXD TLS auth
+                            └── client_key     → LXD TLS auth
+                                    │
+                                    ▼
+                                  LXD API
+                            https://10.0.0.162:8443
+                                    │
+                                    ▼
+                              Instance list
+                              (name, type, status, IPs)
+                                    │
+                                    ▼
+                                index.html
+                                rendered to browser
+```
+---
 ## Folder Structure
 
 ```
