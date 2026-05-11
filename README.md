@@ -10,9 +10,7 @@
 
 * [Promethius architecture](#promethius-architecture)
 
-
 **Note** GHA /.gitea/workflow/x.yaml files pulled by runner is the center of all. runs everything in parallel
-
 --- 
 
 ## Infrastructure Archtecture - GHA - terraform - ansible
@@ -68,73 +66,73 @@
 
 ```
    
-        ┌─────────────────────────┐ 
-        │   Gitea GHA workflow    │ 
-        |   (Actions triggers)    |
-        └─────────────────────────┘
-                |
-                |    
-                |                                Gitea Repo
-                |                   +-----------------------------------+
-                |                   | Source Code + Helm Chart Folder   |
-                |                   | Chart.yaml, values.yaml, templates|
-                |                   | README.md                         |
-                |                   +-----------------------------------+
-                |                        |                     |             
-                |                        |                     |                    
-                |                        |                     | 
-                |                        |                     |                                  
-                |              +----------------------------------------------+         
-                |              |                 Gite runner                  |  
-                +--------------|                                              |              
-                               | helm install/upgrade       Docker build push |-----------------+                
-                               +----------------------------------------------+                 |                
-                                                │                                               |                 
-                                                |                                          +-----------------------+
-                                                |                                          |Local registry / Harbor|
-                                                |                                          +-----------------------+
-                                                ▼                                                  |         
-                        +------------------------------------------------------------+             |
-                        |  Kubernetes Controllers (inside MicroK8s) creates pod      |             |   
-                        | - Deployment Controller ensures desired pods               |             |
-                        |  - Service Controller manages networking                   |             |  
-                        |  - Ingress Controller manages routing                      |             |  
-                        |  - Reconciliation loop keeps actual state = desired state  |             |   
-                        |- Kubelet on the node is the one that pulls the image       |             |
-                        |  (first time or when missing) and starts                   |             |
-                        +------------------------------------------------------------+             |
-                                                |                                                  |
-                                                |                                                  |  
-                                        +----------------------+                                   |   
-                                        | Helm Metadata        |                                   |
-                                        | (Secrets/ConfigMaps) |                                   |
-                                        | - Release name       |                                   |   
-                                        | - Chart version      |                                   | 
-                                        | - Values used        |                                   |
-                                        | - History snapshot   |                                   |
-                                        +----------------------+                                   |
-                                                │                                                  |
-                                                ▼                                                  |
-                                        +----------------------+                                   |
-                                        | Kubernetes Objects   |                                   |
-                                        | (stored in etcd)     |                                   | 
-                                        | - Deployment (spec   |                                   | 
-                                        |   references registry|                                   | 
-                                        |   image)             |                                   | 
-                                        | - Service            |                                   | 
-                                        | - Ingress            |                                   | 
-                                        | - ConfigMaps/Secrets |                                   | 
-                                        +----------------------+                                   | 
-                                                │                                                  | 
-                                                ▼                                                  | 
-                                        +--------------------------+                               |
-                                        | Pods (runtime)           |                               |    
-                                        |--------------------------|                               |
-                                        |- Kubelet Pull images from|                               |
-                                        |   MicroK8s registry      | <-----Kubelet on each node----+
-                                        | - Ephemeral, auto-       |       pulls images and starts 
-                                        |   recreated by K8s       |       containers
-                                        +--------------------------+
+┌─────────────────────────┐ 
+│   Gitea GHA workflow    │ 
+|   (Actions triggers)    |
+└─────────────────────────┘
+        |
+        |    
+        |                                Gitea Repo
+        |                   +-----------------------------------+
+        |                   | Source Code + Helm Chart Folder   |
+        |                   | Chart.yaml, values.yaml, templates|
+        |                   | README.md                         |
+        |                   +-----------------------------------+
+        |                        |                     |        
+        |                        |                     |                    
+        |                        |                     | 
+        |                        |                     |                                  
+        |              +----------------------------------------------+         
+        |              |                 Gite runner                  |  
+        +--------------|                                              |              
+                       | helm install/upgrade       Docker build push |-----------------+    
+                       +----------------------------------------------+                 |   
+                                        │                                               |                 
+                                        |                                          +-----------------------+
+                                        |                                          |Local registry / Harbor|
+                                        |                                          +-----------------------+
+                                        ▼                                                   |         
+                +------------------------------------------------------------+              |
+                |  Kubernetes Controllers (inside MicroK8s) creates pod      |              |   
+                | - Deployment Controller ensures desired pods               |              |
+                |  - Service Controller manages networking                   |              |  
+                |  - Ingress Controller manages routing                      |              |  
+                |  - Reconciliation loop keeps actual state = desired state  |              |   
+                |- Kubelet on the node is the one that pulls the image       |              |
+                |  (first time or when missing) and starts                   |              |
+                +------------------------------------------------------------+              |
+                                        |                                                   | 
+                                        |                                                   |  
+                                +----------------------+                                    |   
+                                | Helm Metadata        |                                    |
+                                | (Secrets/ConfigMaps) |                                    |
+                                | - Release name       |                                    |   
+                                | - Chart version      |                                    | 
+                                | - Values used        |                                    |
+                                | - History snapshot   |                                    |
+                                +----------------------+                                    |
+                                        │                                                   |
+                                        ▼                                                   |
+                                +----------------------+                                    |
+                                | Kubernetes Objects   |                                    |
+                                | (stored in etcd)     |                                    |    
+                                | - Deployment (spec   |                                    |    
+                                |   references registry|                                    |    
+                                |   image)             |                                    | 
+                                | - Service            |                                    |        
+                                | - Ingress            |                                    | 
+                                | - ConfigMaps/Secrets |                                    | 
+                                +----------------------+                                    | 
+                                        │                                                   | 
+                                        ▼                                                   |
+                                +--------------------------+                                |
+                                | Pods (runtime)           |                                |    
+                                |--------------------------|                                |
+                                |- Kubelet Pull images from|                                |
+                                |   MicroK8s registry      |   <----Kubelet on each node----+
+                                | - Ephemeral, auto-       |        pulls images and starts 
+                                |   recreated by K8s       |        containers
+                                +--------------------------+
 
 ```
 ---
@@ -148,8 +146,8 @@
         └── VAULT_SECRET_ID      → same for ALL workflows
                 │
                 ▼
-        OpenBao
-        (AppRole login)
+                OpenBao
+                (AppRole login)
                 │
                 ├── homelab/data/lxd        → LXD TLS cert/key     → GHA talks to LXD
                 ├── homelab/data/minio      → MinIO creds          → Terraform state backend
@@ -177,7 +175,7 @@
                 │
                 │  AppRole login on every HTTP request
                 ▼
-        OpenBao
+                OpenBao
                 │
                 └── homelab/data/lxd
                         │
