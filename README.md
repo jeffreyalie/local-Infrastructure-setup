@@ -10,7 +10,10 @@
 
 * [Promethius architecture](#promethius-architecture)
 
-*** Note *** GHA /.gitea/workflow/x.yaml files pulled by runner is the center of all. runs everything in parallel
+
+*** Note *** 
+GHA /.gitea/workflow/x.yaml files pulled by runner is the center of all. runs everything in parallel
+
 --- 
 
 ## Infrastructure Archtecture - GHA - terraform - ansible
