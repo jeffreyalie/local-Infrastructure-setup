@@ -1,184 +1,146 @@
-# Homelab Infrastructure — Installation Guides
 
-Documentation for the LXD · Gitea · Gitea Runner · OpenBao · MinIO · MicroK8s · Go homelab stack.
-
+#                   Architecture Diagrame
 ---
 
-## Table of Contents
+* [Infrastructure Archtecture - GHA - terraform - ansible](#infrastructure-archtecture---gha---terraform---ansible)
+* [Infrastructure Archtecture  - GHA - kubernetes](#infrastructure-archtecture----gha---kubernetes)
 
-### LXD
+* [Secrets Architecture - gha - org secrets - vault](#secrets-architecture---gha---org-secrets---vault)
+* [Secrets Architecture - Go app - kubernetes - vault](#secrets-architecture---go-app---kubernetes---vault)
 
-- [Install LXD (Snap-based)](./LXD/install-lxd.md)
-  - Install LXD, enable the Web UI, configure trust password, launch containers, enable remote access
+* [Promethius architecture](#promethius-architecture)
 
-### Gitea
+*** Note *** GHA /.gitea/workflow/x.yaml files pulled by runner is the center of all. runs everything in parallel
+--- 
 
-- [Gitea on MicroK8s](./Gitea/gitea-on-microk8s.md)
-  - Enable MicroK8s addons, add Helm chart, configure values.yaml, install and access Gitea
+## Infrastructure Archtecture - GHA - terraform - ansible
 
-- [Docker Socket Mode Runner on Ubuntu 20.04](./Gitea/docker-socket-runner.md)
-  - Register act_runner with Gitea, Docker Socket Mode, docker-compose setup, multiple runners
+```
 
-### MinIO
+                                                                ┌─────────────────────────┐ 
+                                                                │   Gitea GHA workflow    │ 
+                                                                |   (Actions triggers)    |
+                                                                └─────────────────────────┘  
+                                                                            │  
+                                                                            │  
+        ┌──────────────────────────────────────────────────────────┐        │       ┌─────────────────────────────────────────────┐
+        │                  Shared Gitea Repos (Infra org)          │        │       │           Gitea (gitea.local)               │  
+        │                                                          │        │       │   Repo with terrafrom, ansible, workflow    │
+        │  reusable-workflows-vault   ← Default  (OpenBao secrets) │        │       └───────┬─────────────────────────────────────┘
+        │  reusable-workflows         ← Alternate (org secrets)    │        │               |  
+        │  reusable-modules           ← Terraform lxd-vm module    │        │               |
+        │  reusable-ansible-galaxy-*  ← Ansible Galaxy roles       │        │               |              
+        └──────────────────────────────────────────────────┬───────┘        │               |
+                                                           |                │               |
+                                                           |                │               |        
+                                                      calls|                │               | calls                     
+                                                           |                │               |    
+                                                           |                ▼               |
+                                                ┌──────────────────────────────────────────────────────┐                               
+                                                │     Gitea Act Runner (Docker-based, inside LXD VM)   |
+                                                |                                                      | 
+                                                |  terrafrom ini/plan/apply           ansible-playbook | 
+                                                └──────────┬─────────────────────────────┬─────────────┘                               
+                                                           |                             |    
+                                                           │                             │
+                                                  Terraform│                             │Ansible
+                                                           ▼                             ▼
+                                                ┌─────────────────┐           ┌─────────────────┐
+                                                │      MinIO      │           │   Target VM     │
+                                                │    backend s3   │           │  (Ubuntu 24.04) │
+                                                │    (TF state)   │           │  ansible user   │
+                                                └─────────────────┘           └─────────────────┘
+                                                            │                    
+                                                            │ Creates VM
+                                                            │ 
+                                                    ┌─────────────────┐ 
+                                                    │   LXD / KVM     │ 
+                                                    │  (localhost:    │ 
+                                                    │    8443)        │ 
+                                                    └─────────────────┘  
 
-- [Install MinIO on a VM (Linux)](./Minio/install-minio.md)
-  - Download binary, configure systemd service, set credentials, verify
-
-### OpenBao
-
-- [OpenBao Full Working Setup (TLS + Raft + Web UI)](./OpenBao/openbao-full-setup.md)
-  - Self-signed CA, SAN config, TLS certificates, Raft storage, systemd fix, initialize, unseal, Web UI, AppRole auth, GHA workflow integration
-
-- [OpenBao Installation and Configuration](./OpenBao/openbao-installation-configuration.md)
-  - LXD VM setup, install from repo, file-based storage, KV v2 secrets, AppRole, Gitea org secrets migration, auto-unseal
-
-### MicroK8s · Vault · Go on Pod
-
-- [Install MicroK8s on Ubuntu](./microk8s-vault-go%20on%20pod/install-microk8s.md)
-  - Install via snap, enable add-ons, export kubeconfig, Lens setup, Kubernetes Dashboard, RBAC, multiple user auth methods (ServiceAccount / Client Certificate / OIDC)
-
-- [The Right Architecture — Go + MicroK8s + OpenBao + LXD](./microk8s-vault-go%20on%20pod/right-architecture.md)
-  - K8s Secrets as bootstrap, OpenBao for actual secrets, Go AppRole auth, Helm deployment, build and import image to MicroK8s
-
-### Secrets
-
-- [Secrets — Variables and Configuration for Automation](./Secrets/for-automation.md)
-  - All secret variable names and values, generate LXD client cert, generate Ansible SSH keys, add secrets to Gitea, flow into Terraform and cloud-init
-
+```
 ---
 
-## For LXD - Gitea - Gittea runner - OpenBao - Minio - VM deployment and Ansible
-
-### Architecture Overview - (Infrastrucutre - GHA workflow - Secrets workflow)
+## Infrastructure Archtecture  - GHA - kubernetes
 
 ```
-                ┌─────────────────────────────────────────────┐
-                │           Gitea (gitea.local)               │  (Org level secrets for OpenBao)
-                │   local-workflows-ansible-roles-modules     │
-                └─────────────────────┬───────────────────────┘
-                                      │ Gitea Actions triggers                                              
-                                      ▼                                                     ┌───────────────┐ 
-                        ┌─────────────────────────┐                                         │    OpenBao    │ 
-                        │     Gitea Act Runner    │  (Docker-based, inside LXD VM) ─────────│   (secrets)   │ 
-                        └─────┬─────────┬─────────┘                                         │ For LXD /Minio│ 
-                              │         │                                                   └───────────────┘  
-                              │ calls   │ calls                                                   
-                              ▼         ▼
-          ┌──────────────────────────────────────────────────────────┐
-          │                  Shared Gitea Repos (Infra org)          │
-          │                                                          │
-          │  reusable-workflows-vault   ← Default  (OpenBao secrets) │
-          │  reusable-workflows         ← Alternate (org secrets)    │
-          │  reusable-modules           ← Terraform lxd-vm module    │
-          │  reusable-ansible-galaxy-*  ← Ansible Galaxy roles       │
-          └──────────────────────────────────────────────────────────┘
-                       │                             │
-              Terraform│                             │Ansible
-                       ▼                             ▼
-              ┌─────────────────┐           ┌─────────────────┐
-              │      MinIO      │           │   Target VM     │
-              │    backend s3   │           │  (Ubuntu 24.04) │
-              │    (TF state)   │           │  ansible user   │
-              └─────────────────┘           └─────────────────┘
-                      │                    
-                      │ Creates VM
-                      │ 
-              ┌─────────────────┐ 
-              │   LXD / KVM     │ 
-              │  (localhost:    │ 
-              │    8443)        │ 
-              └─────────────────┘  
-```
+   
+            ┌─────────────────────────┐ 
+            │   Gitea GHA workflow    │ 
+            |   (Actions triggers)    |
+            └─────────────────────────┘
+                        |
+                        |    
+                        |                                Gitea Repo
+                        |                   +-----------------------------------+
+                        |                   | Source Code + Helm Chart Folder   |
+                        |                   | Chart.yaml, values.yaml, templates|
+                        |                   | README.md                         |
+                        |                   +-----------------------------------+
+                        |                        |                     |                                                                                      
+                        |                        |                     |                    
+                        |                        |                     | 
+                        |                        |                     |                                  
+                        |              +----------------------------------------------+         
+                        |              |                 Gite runner                  |  
+                        +--------------|                                              |              
+                                       | helm install/upgrade       Docker build push |-----------------+                                       
+                                       +----------------------------------------------+                 |                                                                    
+                                                 │                                                      |                      
+                                                 |                                              +-----------------------+
+                                                 |                                              |Local registry / Harbor|
+                                                 |                                              +-----------------------+
+                                                 ▼                                                      |         
+                            +------------------------------------------------------------+              |
+                            |  Kubernetes Controllers (inside MicroK8s) creates pod      |              |   
+                            | - Deployment Controller ensures desired pods               |              |
+                            |  - Service Controller manages networking                   |              |  
+                            |  - Ingress Controller manages routing                      |              |  
+                            |  - Reconciliation loop keeps actual state = desired state  |              |   
+                            |- Kubelet on the node is the one that pulls the image       |              |
+                            |  (first time or when missing) and starts                   |              |
+                            +------------------------------------------------------------+              |
+                                                        |                                               |                         
+                                                        |                                               |  
+                                            +----------------------+                                    |   
+                                            | Helm Metadata        |                                    |
+                                            | (Secrets/ConfigMaps) |                                    |
+                                            | - Release name       |                                    |   
+                                            | - Chart version      |                                    | 
+                                            | - Values used        |                                    |
+                                            | - History snapshot   |                                    |
+                                            +----------------------+                                    |
+                                                        │                                               |
+                                                        ▼                                               |
+                                            +----------------------+                                    |
+                                            | Kubernetes Objects   |                                    |
+                                            | (stored in etcd)     |                                    |    
+                                            | - Deployment (spec   |                                    |    
+                                            |   references registry|                                    |    
+                                            |   image)             |                                    |    
+                                            | - Service            |                                    |        
+                                            | - Ingress            |                                    |           
+                                            | - ConfigMaps/Secrets |                                    |                
+                                            +----------------------+                                    |                    
+                                                        │                                               |                
+                                                        ▼                                               |            
+                                            +--------------------------+                                |
+                                            | Pods (runtime)           |                                |    
+                                            |--------------------------|                                |
+                                            |- Kubelet Pull images from|                                |
+                                            |   MicroK8s registry      |   <----Kubelet on each node----+
+                                            | - Ephemeral, auto-       |        pulls images and starts 
+                                            |   recreated by K8s       |        containers
+                                            +--------------------------+
 
+```
 ---
 
-## For Microk8s - Go - Gitea - Gitea runner - GHA - OpenBao
-
-### Architecture - (Infrastrucutre - Go app internal workflow - Go app internal Secrets workflow)
+## Secrets Architecture - gha - org secrets - vault
 
 ```
-                              ┌────────────────────┐
-                              │     index.html     │
-                              └────────────────────┘
-                                      │   ▲
-                                      │   │  
-                                      ▼   │ 
-                              ┌────────────────────┐
-                              │      Browser       │
-                              └─────────┬──────────┘
-                                        │
-                                        ▼
-                              ┌────────────────────┐
-                              │  Ingress (NGINX)   │
-                              └─────────┬──────────┘
-                                        │
-                                        ▼
-                              ┌────────────────────┐
-                              │      Service       │  ---- Go app gets internal secreat from openbao for lxd
-                              └─────────┬──────────┘
-                                        │
-                                        ▼
-                              ┌────────────────────┐
-                              │   Pod (MicroK8s)   │  (OpenBao secrets for OpenBao)
-                              └─────────┬──────────┘
-                                        │
-                  ┌─────────────────────┴─────────────────────┐
-                  │                                           │
-                  ▼                                           ▼
-      ┌──────────────────────────────┐         ┌──────────────────────────────┐
-      │ Fetch TLS cert/key           │         │ Query LXD API                │
-      │ from OpenBao (AppRole)       │         │ (LXD Server)                 │
-      └──────────────────────────────┘         └──────────────────────────────┘
-
-```
-
----
-
-### Architecture - (Infrastrucutre - GHA workflow - Secrets workflow)
-
-```
-          ┌──────────────────────────────────────────────────┐
-          │              Gitea Org Secrets                   │
-          │  ├── VAULT_ADDR                                  │
-          │  ├── VAULT_ROLE_ID      → same for ALL workflows │
-          │  └── VAULT_SECRET_ID                             │
-          └──────────────────────────┬───────────────────────┘
-                                    │
-                                    ▼
-          ┌──────────────────────────────────────────────────┐
-          │                   OpenBao                        │  -----------------  Get .kube/config info from openbau
-          │               AppRole login                      │
-          └──────────────────────────┬───────────────────────┘
-                                    │
-                                    ▼
-          ┌──────────────────────────────────────────────────┐
-          │         homelab/data/microk8s                    │
-          │              kubeconfig                          │
-          │   (server: https://10.0.0.162:16443)             │
-          └──────────────────────────┬───────────────────────┘
-                                    │
-                                    ▼
-          ┌──────────────────────────────────────────────────┐
-          │           GHA Runner (LXD VM)                    │
-          │                                                  │
-          └──────────┬───────────────┬───────────────┬───────┘
-                    │               │               │
-                    ▼               ▼               ▼
-              ┌────────────┐  ┌────────────┐  ┌────────────┐
-              │helm deploy │  │helm deploy │  │helm deploy │
-              │   dev      │  │  staging   │  │   live     │
-              └────────────┘  └────────────┘  └────────────┘
-
-          PR Pipeline:   build-pr → deploy-dev-pr → deploy-staging-pr
-          Push Pipeline: build    → deploy-live
-```
-
----
-
-## GHA workflow openboa secrets
-
-```
-          Gitea Org Secrets
+          Gitea Org Secrets        - added manually via org/settings/actions/secrets
           ├── VAULT_ADDR
           ├── VAULT_ROLE_ID        → same for ALL workflows
           └── VAULT_SECRET_ID      → same for ALL workflows
@@ -187,21 +149,21 @@ Documentation for the LXD · Gitea · Gitea Runner · OpenBao · MinIO · MicroK
                 OpenBao
                 (AppRole login)
                   │
-                  ├── homelab/data/lxd        → LXD TLS cert/key    → go app talks to LXD
+                  ├── homelab/data/lxd        → LXD TLS cert/key     → GHA talks to LXD
                   ├── homelab/data/minio      → MinIO creds          → Terraform state backend
                   ├── homelab/data/ansible    → Ansible secrets      → Ansible playbooks
-                  └── homelab/data/microk8s   → kubeconfig          → helm deploy to MicroK8s
+                  └── homelab/data/microk8s   → kubeconfig           → helm deploy to MicroK8s
 
 ```
 ---
 
-## Openboa - microk8s - Go app secrets
+## Secrets Architecture - Go app - kubernetes - vault 
 
 ```
           Running Pod (request time)
           ──────────────────────────
-          K8s Secret (openbao-creds)         ← created manually via kubectl
-          ├── VAULT_ADDR                         in each namespace (dev/staging/live)
+          K8s Secret (openbao-creds)             ← created manually via kubectl create samespace and create secrets
+          ├── VAULT_ADDR                             in each namespace (dev/staging/live)
           ├── VAULT_ROLE_ID
           └── VAULT_SECRET_ID
                   │
@@ -233,24 +195,48 @@ Documentation for the LXD · Gitea · Gitea Runner · OpenBao · MinIO · MicroK
                                 rendered to browser
 ```
 ---
-## Folder Structure
+
+## Promethius architecture
+
+---
 
 ```
-.
-├── Gitea/
-│   ├── docker-socket-runner.md
-│   └── gitea-on-microk8s.md
-├── LXD/
-│   └── install-lxd.md
-├── microk8s-vault-go on pod/
-│   ├── install-microk8s.md
-│   └── right-architecture.md
-├── Minio/
-│   └── install-minio.md
-├── OpenBao/
-│   ├── openbao-full-setup.md
-│   └── openbao-installation-configuration.md
-├── Secrets/
-│   └── for-automation.md
-└── README.md
+                                [ USER / ADMIN ]
+                                        |
+                         1. Apply YAML (ServiceMonitors, Rules) <----------------- Via gitea repo
+                                        |
+                                        v
+[--------------------------- KUBERNETES API SERVER ---------------------------------]
+                                        |
+                                        | (Watches for changes)
+                                        v
+                            [ PROMETHEUS OPERATOR POD ]
+                            "The Manager / Foreman"
+                                        |
+           -------------------------------------------------------------
+           | (Configures)               | (Configures)                 | (Configures)
+           v                            v                              v
+   [ PROMETHEUS POD ] <---------- [ ALERTMANAGER ]                [ GRAFANA POD ]
+   "The Database"      (Alerts)    "The Notifier"                 "The Visualizer"
+           |                                                           |
+           | 2. PULL / SCRAPE                                          | 3. QUERY
+           | (Every 15-30s)                                            | (On Demand)
+           |                                                           |
+           |                                                           v
+           |                                                     (User Web Browser)
+           |                                                     "lxd-dashboard.local"
+|          | 
+           |
+           |
+           |                           
+           |---> [ NODE EXPORTER ] ----> (Hardware/OS Metrics)
+           |
+           |---> [ YOUR GO APP ] 
+                    |
+                    |-- (:8080/metrics) <--- (Exposed via Go Client Library) (API for Prometheus to pull)
+                    |
+                    |-- [ INTERNAL APP LOGIC ]
+                            |
+                            |-- (LXD SDK) ----> [ LXD SERVER ]
+                            |-- (Vault SDK) ---> [ OPENBAO ]
 ```
